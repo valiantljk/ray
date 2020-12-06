@@ -205,13 +205,15 @@ class RemoteWorkerGroup(WorkerGroupInterface):
             rank_counter_dict[ip] += 1
         return futures
 
-    def start_workers(self, num_workers):
+    def start_workers(self, num_workers, placement=None):
         logger.debug(f"start_workers: Setting %d workers." % num_workers)
+        if placement != None:
+            logger.warning(f"try to place on %s."% placement)
         if num_workers == 1:
             RemoteRunner = ray.remote(
                 num_cpus=self._num_cpus_per_worker,
                 num_gpus=int(self._use_gpu))(TorchRunner)
-            self.remote_workers = [RemoteRunner.remote(**self._params)]
+            self.remote_workers = [RemoteRunner.options(resources=placement).remote(**self._params)]
             ray.get(self.remote_workers[0].setup_operator.remote())
         else:
             self._init_dist_workers(num_workers)

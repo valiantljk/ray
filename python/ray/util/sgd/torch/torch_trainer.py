@@ -160,6 +160,7 @@ class TorchTrainer:
             serialize_data_creation=None,
             data_loader_args=None,
             apex_args=None,
+            placements=None,
     ):
         if (model_creator or data_creator or optimizer_creator
                 or scheduler_creator or loss_creator):
@@ -258,7 +259,7 @@ class TorchTrainer:
                         "multi-node training, be sure to run `ray.init("
                         "address='auto')` before instantiating the Trainer.")
             ray.init()
-        self._start_workers(self.max_replicas)
+        self._start_workers(self.max_replicas, placements)
 
     def _configure_and_split_batch(self, num_workers):
         """If sgd.utils.BATCH_SIZE is provided, split among workers."""
@@ -280,7 +281,7 @@ class TorchTrainer:
             self.config[BATCH_SIZE] = new_batch_size
         return batch_size_per_worker
 
-    def _start_workers(self, num_workers):
+    def _start_workers(self, num_workers, placements=None):
         worker_config = self.config.copy()
         batch_size_per_worker = self._configure_and_split_batch(num_workers)
         if batch_size_per_worker:
@@ -318,7 +319,7 @@ class TorchTrainer:
         #  num_workers workers, this command will hang. Instead,
         #  start_workers should take into account available resources when
         #  determining how many workers to create.
-        self.worker_group.start_workers(num_workers)
+        self.worker_group.start_workers(num_workers, placements)
 
     def _resize_worker_group(self, max_retries=10):
         """Resizes the number of remote workers based on available resources.
@@ -337,7 +338,7 @@ class TorchTrainer:
             new_workers = self.worker_group.new_workers_size()
             if new_workers:
                 self._last_resize = time.time()
-                self._start_workers(int(new_workers))
+                self._start_workers(int(new_workers), placements)
                 self.load_state_dict(state_dict, blocking=True)
                 if self.use_local and new_workers == 1 and old_workers > 1:
                     # Major hack. If we go from LocalDistributedRunner to a
