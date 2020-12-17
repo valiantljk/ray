@@ -4,7 +4,7 @@ import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
-
+import java.nio.*;
 /**
  * Represents the id of a Ray job.
  */
@@ -44,6 +44,7 @@ public class JobId extends BaseId implements Serializable {
     ByteBuffer wbb = ByteBuffer.wrap(bytes);
     wbb.order(ByteOrder.LITTLE_ENDIAN);
     wbb.putInt(value);
+    //((Buffer)wbb).flip();
     wbb.flip();
     wbb.limit(JobId.LENGTH);
     return JobId.fromByteBuffer(wbb);

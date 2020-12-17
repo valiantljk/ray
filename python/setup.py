@@ -375,7 +375,7 @@ def api_main(program, *args):
     result = None
 
     if parsed_args.command == "build":
-        kwargs = dict(build_python=False, build_java=False)
+        kwargs = dict(build_python=False, build_java=True)
         for lang in parsed_args.language.split(","):
             if "python" in lang:
                 kwargs.update(build_python=True)
