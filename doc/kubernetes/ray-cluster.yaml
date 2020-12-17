@@ -102,7 +102,7 @@ metadata:
   name: ray-worker
 spec:
   # Change this to scale the number of worker nodes started in the Ray cluster.
-  replicas: 3
+  replicas: 6
   selector:
     matchLabels:
       component: ray-worker
