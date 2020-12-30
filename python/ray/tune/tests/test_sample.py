@@ -2,6 +2,7 @@ import numpy as np
 import unittest
 
 from ray import tune
+from ray.tune import Experiment
 from ray.tune.suggest.variant_generator import generate_variants
 
 
@@ -25,7 +26,9 @@ class SearchSpaceTest(unittest.TestCase):
             "qloguniform": tune.qloguniform(1e-4, 1e-1, 5e-5),
             "choice": tune.choice([2, 3, 4]),
             "randint": tune.randint(-9, 15),
+            "lograndint": tune.lograndint(1, 10),
             "qrandint": tune.qrandint(-21, 12, 3),
+            "qlograndint": tune.qlograndint(2, 20, 2),
             "randn": tune.randn(10, 2),
             "qrandn": tune.qrandn(10, 2, 0.2),
         }
@@ -57,10 +60,21 @@ class SearchSpaceTest(unittest.TestCase):
 
             self.assertGreaterEqual(out["randint"], -9)
             self.assertLess(out["randint"], 15)
+            self.assertTrue(isinstance(out["randint"], int))
+
+            self.assertGreaterEqual(out["lograndint"], 1)
+            self.assertLess(out["lograndint"], 10)
+            self.assertTrue(isinstance(out["lograndint"], int))
 
             self.assertGreaterEqual(out["qrandint"], -21)
             self.assertLessEqual(out["qrandint"], 12)
             self.assertEqual(out["qrandint"] % 3, 0)
+            self.assertTrue(isinstance(out["qrandint"], int))
+
+            self.assertGreaterEqual(out["qlograndint"], 2)
+            self.assertLessEqual(out["qlograndint"], 20)
+            self.assertEqual(out["qlograndint"] % 2, 0)
+            self.assertTrue(isinstance(out["qlograndint"], int))
 
             # Very improbable
             self.assertGreater(out["randn"], 0)
@@ -416,7 +430,7 @@ class SearchSpaceTest(unittest.TestCase):
         config = {
             "a": tune.sample.Categorical([2, 3, 4]).uniform(),
             "b": {
-                "x": tune.sample.Integer(-15, -10).quantized(2),
+                "x": tune.sample.Integer(-15, -10),
                 "y": 4,
                 "z": tune.sample.Float(1e-4, 1e-2).loguniform()
             }
@@ -425,7 +439,7 @@ class SearchSpaceTest(unittest.TestCase):
         hyperopt_config = {
             "a": hp.choice("a", [2, 3, 4]),
             "b": {
-                "x": hp.randint("x", -15, -10),
+                "x": hp.uniformint("x", -15, -10),
                 "y": 4,
                 "z": hp.loguniform("z", np.log(1e-4), np.log(1e-2))
             }
@@ -624,17 +638,22 @@ class SearchSpaceTest(unittest.TestCase):
 
     def testConvertSkOpt(self):
         from ray.tune.suggest.skopt import SkOptSearch
+        from skopt.space import Real, Integer
 
         config = {
             "a": tune.sample.Categorical([2, 3, 4]).uniform(),
             "b": {
-                "x": tune.sample.Integer(0, 5).quantized(2),
+                "x": tune.sample.Integer(0, 5),
                 "y": 4,
                 "z": tune.sample.Float(1e-4, 1e-2).loguniform()
             }
         }
         converted_config = SkOptSearch.convert_search_space(config)
-        skopt_config = {"a": [2, 3, 4], "b/x": (0, 5), "b/z": (1e-4, 1e-2)}
+        skopt_config = {
+            "a": [2, 3, 4],
+            "b/x": Integer(0, 5),
+            "b/z": Real(1e-4, 1e-2, prior="log-uniform")
+        }
 
         searcher1 = SkOptSearch(space=converted_config, metric="a", mode="max")
         searcher2 = SkOptSearch(space=skopt_config, metric="a", mode="max")
@@ -871,8 +890,104 @@ class SearchSpaceTest(unittest.TestCase):
         return self._testPointsToEvaluate(
             ZOOptSearch, config, budget=10, parallel_num=8)
 
+    def testPointsToEvaluateBasicVariant(self):
+        config = {
+            "metric": tune.sample.Categorical([1, 2, 3, 4]).uniform(),
+            "a": tune.sample.Categorical(["t1", "t2", "t3", "t4"]).uniform(),
+            "b": tune.sample.Integer(0, 5),
+            "c": tune.sample.Float(1e-4, 1e-1).loguniform()
+        }
+
+        from ray.tune.suggest.basic_variant import BasicVariantGenerator
+        return self._testPointsToEvaluate(BasicVariantGenerator, config)
+
+    def testPointsToEvaluateBasicVariantAdvanced(self):
+        config = {
+            "grid_1": tune.grid_search(["a", "b", "c", "d"]),
+            "grid_2": tune.grid_search(["x", "y", "z"]),
+            "nested": {
+                "random": tune.uniform(2., 10.),
+                "dependent": tune.sample_from(
+                    lambda spec: -1. * spec.config.nested.random)
+            }
+        }
+
+        points = [
+            {
+                "grid_1": "b"
+            },
+            {
+                "grid_2": "z"
+            },
+            {
+                "grid_1": "a",
+                "grid_2": "y"
+            },
+            {
+                "nested": {
+                    "random": 8.0
+                }
+            },
+        ]
+
+        from ray.tune.suggest.basic_variant import BasicVariantGenerator
+
+        # grid_1 * grid_2 are 3 * 4 = 12 variants per complete grid search
+        # However if one grid var is set by preset variables, that run
+        # is excluded from grid search.
+
+        # Point 1 overwrites grid_1, so the first trial only grid searches
+        # over grid_2 (3 trials).
+        # The remaining 5 trials search over the whole space (5 * 12 trials)
+        searcher = BasicVariantGenerator(points_to_evaluate=[points[0]])
+        exp = Experiment(
+            run=_mock_objective, name="test", config=config, num_samples=6)
+        searcher.add_configurations(exp)
+        self.assertEqual(searcher.total_samples, 1 * 3 + 5 * 12)
+
+        # Point 2 overwrites grid_2, so the first trial only grid searches
+        # over grid_1 (4 trials).
+        # The remaining 5 trials search over the whole space (5 * 12 trials)
+        searcher = BasicVariantGenerator(points_to_evaluate=[points[1]])
+        exp = Experiment(
+            run=_mock_objective, name="test", config=config, num_samples=6)
+        searcher.add_configurations(exp)
+        self.assertEqual(searcher.total_samples, 1 * 4 + 5 * 12)
+
+        # Point 3 overwrites grid_1 and grid_2, so the first trial does not
+        # grid search.
+        # The remaining 5 trials search over the whole space (5 * 12 trials)
+        searcher = BasicVariantGenerator(points_to_evaluate=[points[2]])
+        exp = Experiment(
+            run=_mock_objective, name="test", config=config, num_samples=6)
+        searcher.add_configurations(exp)
+        self.assertEqual(searcher.total_samples, 1 + 5 * 12)
+
+        # When initialized with all points, the first three trials are
+        # defined by the logic above. Only 3 trials are grid searched
+        # compeletely.
+        searcher = BasicVariantGenerator(points_to_evaluate=points)
+        exp = Experiment(
+            run=_mock_objective, name="test", config=config, num_samples=6)
+        searcher.add_configurations(exp)
+        self.assertEqual(searcher.total_samples, 1 * 3 + 1 * 4 + 1 + 3 * 12)
+
+        # Run this and confirm results
+        analysis = tune.run(exp, search_alg=searcher)
+        configs = [trial.config for trial in analysis.trials]
+
+        self.assertEqual(len(configs), searcher.total_samples)
+        self.assertTrue(
+            all(config["grid_1"] == "b" for config in configs[0:3]))
+        self.assertTrue(
+            all(config["grid_2"] == "z" for config in configs[3:7]))
+        self.assertTrue(configs[7]["grid_1"] == "a"
+                        and configs[7]["grid_2"] == "y")
+        self.assertTrue(configs[8]["nested"]["random"] == 8.0)
+        self.assertTrue(configs[8]["nested"]["dependent"] == -8.0)
+
 
 if __name__ == "__main__":
     import pytest
     import sys
-    sys.exit(pytest.main(["-v", __file__]))
+    sys.exit(pytest.main(["-v", __file__] + sys.argv[1:]))

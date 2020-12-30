@@ -148,7 +148,7 @@ class NevergradSearch(Searcher):
                 space = self.convert_search_space(space)
 
         if isinstance(optimizer, Optimizer):
-            if space is not None or isinstance(space, list):
+            if space is not None and not isinstance(space, list):
                 raise ValueError(
                     "If you pass a configured optimizer to Nevergrad, either "
                     "pass a list of parameter names or None as the `space` "
@@ -310,16 +310,23 @@ class NevergradSearch(Searcher):
                         exponent=sampler.base)
                 return ng.p.Scalar(lower=domain.lower, upper=domain.upper)
 
-            if isinstance(domain, Integer):
+            elif isinstance(domain, Integer):
+                if isinstance(sampler, LogUniform):
+                    return ng.p.Log(
+                        lower=domain.lower,
+                        upper=domain.upper,
+                        exponent=sampler.base).set_integer_casting()
                 return ng.p.Scalar(
                     lower=domain.lower,
                     upper=domain.upper).set_integer_casting()
 
-            if isinstance(domain, Categorical):
+            elif isinstance(domain, Categorical):
                 return ng.p.Choice(choices=domain.categories)
 
-            raise ValueError("SkOpt does not support parameters of type "
-                             "`{}`".format(type(domain).__name__))
+            raise ValueError("Nevergrad does not support parameters of type "
+                             "`{}` with samplers of type `{}`".format(
+                                 type(domain).__name__,
+                                 type(domain.sampler).__name__))
 
         # Parameter name is e.g. "a/b/c" for nested dicts
         space = {
