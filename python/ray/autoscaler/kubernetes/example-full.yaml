@@ -143,6 +143,7 @@ head_node:
           #   - screen (used for `ray attach`)
           #   - kubectl (used by the autoscaler to manage worker pods)
           image: rayproject/ray:nightly
+          # image: gcr.io/byteflow/ray:1.1.0.dev0
           # Do not change this command - it keeps the pod alive until it is
           # explicitly killed.
           command: ["/bin/bash", "-c", "--"]
@@ -216,6 +217,7 @@ worker_nodes:
           # but it should have the following installed:
           #   - rsync (used for `ray rsync` commands and file mounts)
           image: rayproject/ray:nightly
+          #image: gcr.io/byteflow/ray:1.1.0.dev0
           # Do not change this command - it keeps the pod alive until it is
           # explicitly killed.
           command: ["/bin/bash", "-c", "--"]
@@ -292,9 +294,9 @@ worker_setup_commands: []
 # Note webui-host is set to 0.0.0.0 so that kubernetes can port forward.
 head_start_ray_commands:
     - ray stop
-    - ulimit -n 65536; ray start --head --num-cpus=$MY_CPU_REQUEST --port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml --dashboard-host 0.0.0.0
+    - ulimit -n 65536; ray start --head --num-cpus=$MY_CPU_REQUEST --port=6379 --object-manager-port=8076 --autoscaling-config=~/ray_bootstrap_config.yaml --include-dashboard False
 
 # Command to start ray on worker nodes. You don't need to change this.
 worker_start_ray_commands:
     - ray stop
-    - ulimit -n 65536; ray start --num-cpus=$MY_CPU_REQUEST --address=$RAY_HEAD_IP:6379 --object-manager-port=8076
+    - ulimit -n 65536; ray start --num-cpus=$MY_CPU_REQUEST --address=$RAY_HEAD_IP:6379 --object-manager-port=8076 --include-dashboard False
