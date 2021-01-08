@@ -47,7 +47,7 @@ provider:
 
 # How Ray will authenticate with newly launched nodes.
 auth:
-    ssh_user: tiger
+    ssh_user: root
     # Optional if an ssh private key is necessary to ssh to the cluster.
     # ssh_private_key: ~/.ssh/id_rsa
 
